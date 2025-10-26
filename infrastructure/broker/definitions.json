@@ -1,0 +1,19 @@
+{
+  "topics": [
+    {
+      "name": "image_preprocess",
+      "max_retries": 5,
+      "retry_delay_seconds": 30
+    },
+    {
+      "name": "ocr_extract",
+      "max_retries": 5,
+      "retry_delay_seconds": 30
+    },
+    {
+      "name": "document_events",
+      "max_retries": 5,
+      "retry_delay_seconds": 15
+    }
+  ]
+}

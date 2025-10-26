@@ -1,0 +1,201 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: ocr_postgres
+    environment:
+      POSTGRES_USER: ocr_admin
+      POSTGRES_PASSWORD: ocr_admin
+      POSTGRES_DB: ocr_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ocr_admin -d ocr_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: ocr_gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      document-service:
+        condition: service_healthy
+      broker-service:
+        condition: service_healthy
+    environment:
+      SERVICE_NAME: gateway
+      USER_SERVICE_URL: http://user-service:8001/api
+      DOCUMENT_SERVICE_URL: http://document-service:8002/api
+      BROKER_SERVICE_URL: http://broker-service:8003/api
+      JWT_SECRET_KEY: supersecretjwt
+      JWT_ACCESS_TTL_SECONDS: "900"
+      JWT_REFRESH_TTL_SECONDS: "604800"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./shared/python:/app/shared
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request,sys; urllib.request.urlopen('http://localhost:8000/api/health')"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    container_name: ocr_user_service
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVICE_NAME: user-service
+      POSTGRES_DSN: postgresql+asyncpg://ocr_admin:ocr_admin@postgres:5432/ocr_platform
+      JWT_SECRET_KEY: supersecretjwt
+      ACCESS_TOKEN_TTL_SECONDS: "900"
+      REFRESH_TOKEN_TTL_SECONDS: "604800"
+    volumes:
+      - ./shared/python:/app/shared
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request,sys; urllib.request.urlopen('http://localhost:8001/api/health')"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  document-service:
+    build:
+      context: .
+      dockerfile: services/document-service/Dockerfile
+    container_name: ocr_document_service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      broker-service:
+        condition: service_healthy
+    environment:
+      SERVICE_NAME: document-service
+      POSTGRES_DSN: postgresql+asyncpg://ocr_admin:ocr_admin@postgres:5432/ocr_platform
+      BROKER_SERVICE_URL: http://broker-service:8003
+      STORAGE_BACKEND: postgres
+      MAX_UPLOAD_MB: "10"
+    volumes:
+      - ./shared/python:/app/shared
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request,sys; urllib.request.urlopen('http://localhost:8002/api/health')"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  broker-service:
+    build:
+      context: .
+      dockerfile: services/broker-service/Dockerfile
+    container_name: ocr_broker_service
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVICE_NAME: broker-service
+      POSTGRES_DSN: postgresql+asyncpg://ocr_admin:ocr_admin@postgres:5432/ocr_platform
+      VISIBILITY_TIMEOUT_SECONDS: "120"
+      JOB_LEASE_SECONDS: "60"
+      CLEANUP_INTERVAL_SECONDS: "30"
+    volumes:
+      - ./shared/python:/app/shared
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request,sys; urllib.request.urlopen('http://localhost:8003/api/health')"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  image-preprocessing-service:
+    build:
+      context: .
+      dockerfile: processing-services/image-preprocessing-service/Dockerfile
+    container_name: ocr_preprocessing_service
+    depends_on:
+      broker-service:
+        condition: service_healthy
+      document-service:
+        condition: service_healthy
+    environment:
+      SERVICE_NAME: image-preprocessing-service
+      BROKER_SERVICE_URL: http://broker-service:8003
+      DOCUMENT_SERVICE_URL: http://document-service:8002
+      QUEUE_TOPIC: image_preprocess
+    volumes:
+      - ./shared/python:/app/shared
+
+  ocr-service:
+    build:
+      context: .
+      dockerfile: processing-services/ocr-service/Dockerfile
+    container_name: ocr_ocr_service
+    depends_on:
+      broker-service:
+        condition: service_healthy
+      document-service:
+        condition: service_healthy
+    environment:
+      SERVICE_NAME: ocr-service
+      BROKER_SERVICE_URL: http://broker-service:8003
+      DOCUMENT_SERVICE_URL: http://document-service:8002
+      QUEUE_TOPIC: ocr_extract
+      OCR_MODEL_NAME: microsoft/trocr-small-printed
+    volumes:
+      - ./shared/python:/app/shared
+
+  worker-service:
+    build:
+      context: .
+      dockerfile: services/worker-service/Dockerfile
+    container_name: ocr_worker_service
+    depends_on:
+      broker-service:
+        condition: service_healthy
+      document-service:
+        condition: service_healthy
+    environment:
+      SERVICE_NAME: worker-service
+      BROKER_SERVICE_URL: http://broker-service:8003
+      DOCUMENT_SERVICE_URL: http://document-service:8002
+      DOCUMENT_EVENTS_TOPIC: document_events
+      PREPROCESS_TOPIC: image_preprocess
+      OCR_TOPIC: ocr_extract
+    volumes:
+      - ./shared/python:/app/shared
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    container_name: ocr_frontend
+    depends_on:
+      gateway:
+        condition: service_healthy
+    ports:
+      - "5173:5173"
+
+volumes:
+  postgres_data:

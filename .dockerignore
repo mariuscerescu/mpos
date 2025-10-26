@@ -1,0 +1,40 @@
+# Version control
+.git
+.gitignore
+
+# Editor and IDE folders
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Python caches and virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+.env.*
+
+# Node dependencies
+node_modules/
+frontend/node_modules/
+
+# Build artifacts
+dist/
+build/
+*.egg-info
+.cache
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# OS-specific files
+.DS_Store
+Thumbs.db
