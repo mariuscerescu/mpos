@@ -33,7 +33,7 @@ export function createOCRView() {
   textPanelTitle.textContent = "Extracted Text";
   const textArea = document.createElement("textarea");
   textArea.className = "ocr-text-area";
-  textArea.placeholder = "OCR text will appear here after extraction...";
+  textArea.placeholder = 'Select a document and click "Extract Text" to start OCR extraction...';
   textArea.readOnly = false; // Editabil
   textPanel.append(textPanelTitle, textArea);
   
@@ -139,6 +139,7 @@ export function createOCRView() {
     if (!doc) {
       renderImage(null, "Select a document");
       textArea.value = "";
+      textArea.placeholder = "Select a document to extract text...";
       return;
     }
 
@@ -153,11 +154,14 @@ export function createOCRView() {
       renderImage(originalBlob, "Image not preprocessed yet.");
     }
 
-    // Show OCR text if available
-    if (doc.ocr_text) {
+    // Only show OCR text if document status is 'completed'
+    // This ensures text appears only after OCR extraction is done
+    if (doc.status === "completed" && doc.ocr_text) {
       textArea.value = doc.ocr_text;
+      textArea.placeholder = "Edit extracted text...";
     } else {
       textArea.value = "";
+      textArea.placeholder = `Click "Extract Text" to start OCR extraction...`;
     }
   }
 
