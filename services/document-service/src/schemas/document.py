@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Literal, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +23,7 @@ class DocumentCreate(BaseModel):
 
 
 class DocumentRead(BaseModel):
-    id: str
+    id: UUID
     owner_id: str
     filename: str
     content_type: str

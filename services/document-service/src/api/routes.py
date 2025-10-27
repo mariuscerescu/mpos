@@ -92,21 +92,8 @@ async def upload_document(
             variant="original",
             content=content,
         )
-        document.status = "queued_preprocessing"
-        await session.flush()
-        await session.refresh(document)
-
-        await _publish_event(
-            broker,
-            event_type="document_uploaded",
-            document_id=str(document.id),
-            owner_id=owner_id,
-            payload={
-                "filename": document.filename,
-                "content_type": document.content_type,
-                "size_bytes": document.size_bytes,
-            },
-        )
+        # Documentul este doar încărcat, nu trimis la procesare
+        document.status = "uploaded"
         await session.commit()
         return DocumentRead.model_validate(document)
     except HTTPException:

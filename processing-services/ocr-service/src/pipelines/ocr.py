@@ -21,7 +21,8 @@ def get_model() -> tuple[TrOCRProcessor, VisionEncoderDecoderModel]:
 
 def run_ocr(image_bytes: bytes) -> str:
     processor, model = get_model()
-    image = Image.open(io.BytesIO(image_bytes))
+    # Asigurăm că imaginea este în format RGB (3 canale)
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     pixel_values = processor(images=image, return_tensors="pt").pixel_values
     generated_ids = model.generate(pixel_values)
     text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]

@@ -40,22 +40,10 @@ export function createUploadStatus() {
   const tbody = document.createElement("tbody");
   table.append(thead, tbody);
 
-  const detail = document.createElement("div");
-  detail.className = "document-detail";
-  const detailTitle = document.createElement("h3");
-  detailTitle.textContent = "Document Details";
-  const detailMeta = document.createElement("div");
-  detailMeta.className = "document-meta";
-  const detailOutput = document.createElement("pre");
-  detailOutput.className = "document-output";
-  detailOutput.textContent = "Select a document to inspect its OCR output.";
-  detail.append(detailTitle, detailMeta, detailOutput);
-
-  section.append(title, status, controls, table, detail);
+  section.append(title, status, controls, table);
 
   let currentTokens = null;
   let documents = [];
-  let selectedId = null;
   let isLoading = false;
 
   function setStatus(message, variant = "info") {
@@ -87,25 +75,6 @@ export function createUploadStatus() {
     return button;
   }
 
-  function renderDetail(doc) {
-    if (!doc) {
-      detailMeta.innerHTML = "<p>Select a document to see metadata and OCR output.</p>";
-      detailOutput.textContent = "OCR text will appear here once processing completes.";
-      return;
-    }
-    const updated = doc.updated_at ? new Date(doc.updated_at) : null;
-    const sizeKb =
-      typeof doc.size_bytes === "number" ? `${(doc.size_bytes / 1024).toFixed(1)} KB` : "Unknown";
-    detailMeta.innerHTML = `
-      <p><strong>Filename:</strong> ${doc.filename}</p>
-      <p><strong>Status:</strong> ${doc.status}</p>
-      <p><strong>Updated:</strong> ${updated ? updated.toLocaleString() : "Unknown"}</p>
-      <p><strong>Size:</strong> ${sizeKb}</p>
-      ${doc.error_message ? `<p class="error">Error: ${doc.error_message}</p>` : ""}
-    `;
-    detailOutput.textContent = doc.ocr_text || "[OCR text not available yet]";
-  }
-
   function renderDocuments() {
     tbody.innerHTML = "";
 
@@ -123,10 +92,6 @@ export function createUploadStatus() {
 
     documents.forEach((doc) => {
       const row = document.createElement("tr");
-      if (doc.id === selectedId) {
-        row.classList.add("selected");
-      }
-      row.addEventListener("click", () => selectDocument(doc.id));
 
       const filenameCell = document.createElement("td");
       filenameCell.textContent = doc.filename;
@@ -139,8 +104,7 @@ export function createUploadStatus() {
 
       const actionsCell = document.createElement("td");
       actionsCell.append(
-        createActionButton("View", () => selectDocument(doc.id)),
-        createActionButton("Requeue", () => requeueDocument(doc.id), "secondary"),
+        createActionButton("Procesează", () => requeueDocument(doc.id), "secondary"),
         createActionButton("Delete", () => deleteDocument(doc.id), "danger"),
       );
 
@@ -153,7 +117,6 @@ export function createUploadStatus() {
     if (!currentTokens) {
       documents = [];
       renderDocuments();
-      renderDetail(null);
       setStatus("Authenticate to manage documents.", "info");
       return;
     }
@@ -169,10 +132,6 @@ export function createUploadStatus() {
       const response = await apiClient.get("/documents");
       documents = Array.isArray(response) ? response : [];
       renderDocuments();
-      if (selectedId) {
-        const match = documents.find((item) => item.id === selectedId);
-        renderDetail(match || null);
-      }
       if (documents.length) {
         setStatus(`Loaded ${documents.length} document${documents.length === 1 ? "" : "s"}.`, "success");
       } else {
@@ -183,25 +142,6 @@ export function createUploadStatus() {
     } finally {
       isLoading = false;
       refreshButton.disabled = !currentTokens;
-    }
-  }
-
-  async function selectDocument(documentId) {
-    if (!currentTokens) {
-      return;
-    }
-    try {
-      const document = await apiClient.get(`/documents/${documentId}`);
-      selectedId = document.id;
-      const index = documents.findIndex((item) => item.id === document.id);
-      if (index >= 0) {
-        documents[index] = document;
-      }
-      renderDocuments();
-      renderDetail(document);
-      setStatus(`Viewing ${document.filename}.`, "info");
-    } catch (error) {
-      setStatus(error.message || "Failed to load document details.", "error");
     }
   }
 
@@ -222,10 +162,6 @@ export function createUploadStatus() {
     try {
       await apiClient.delete(`/documents/${documentId}`);
       setStatus("Document deleted.", "success");
-      if (selectedId === documentId) {
-        selectedId = null;
-        renderDetail(null);
-      }
       await fetchDocuments();
     } catch (error) {
       setStatus(error.message || "Failed to delete document.", "error");
@@ -251,7 +187,6 @@ export function createUploadStatus() {
       formData.append("file", file);
       const result = await apiClient.postForm("/documents", formData);
       const document = result?.document || result;
-      selectedId = document.id;
       setStatus(`Uploaded ${document.filename}.`, "success");
       fileInput.value = "";
       await fetchDocuments();
@@ -279,14 +214,11 @@ export function createUploadStatus() {
       fetchDocuments();
     } else {
       documents = [];
-      selectedId = null;
       renderDocuments();
-      renderDetail(null);
       setStatus("Authenticate to manage documents.", "info");
     }
   }
 
-  renderDetail(null);
   setStatus("Authenticate to manage documents.", "info");
 
   return { element: section, setTokens };
