@@ -18,6 +18,7 @@ from ..schemas.document import (
     DocumentRead,
     FailurePayload,
     OCRTextPayload,
+    ProcessDocumentsRequest,
     StatusUpdatePayload,
 )
 from shared.schemas.events import DocumentEvent, DocumentEventType
@@ -185,6 +186,95 @@ async def requeue_document(
     except Exception as exc:  # noqa: BLE001
         await session.rollback()
         raise HTTPException(status_code=500, detail="failed to requeue document") from exc
+
+
+@router.post("/documents/process-batch", status_code=status.HTTP_202_ACCEPTED, tags=["documents"])
+async def process_batch_documents(
+    payload: ProcessDocumentsRequest,
+    owner_id: str = Depends(get_owner_id),
+    session: AsyncSession = Depends(get_session),
+    broker: BrokerClient = Depends(get_broker_client),
+) -> dict[str, Any]:
+    processed_ids = []
+    errors = {}
+
+    for doc_id in payload.document_ids:
+        document_id_str = str(doc_id)
+        document = await documents_repo.get_document(session, document_id_str)
+
+        if document is None or document.owner_id != owner_id:
+            errors[document_id_str] = "Document not found or access denied"
+            continue
+
+        try:
+            document.status = "queued_preprocessing"
+            document.error_message = None
+            await session.flush()
+
+            await _publish_event(
+                broker,
+                event_type="document_uploaded",
+                document_id=document_id_str,
+                owner_id=owner_id,
+                payload={"reason": "batch_processing_request"},
+            )
+            processed_ids.append(document_id_str)
+        except Exception as exc:  # noqa: BLE001
+            errors[document_id_str] = f"Failed to queue: {exc}"
+
+    if not processed_ids and errors:
+        await session.rollback()
+        raise HTTPException(status_code=400, detail={"message": "No documents could be queued.", "errors": errors})
+
+    await session.commit()
+    return {"message": "Batch processing started", "processed_ids": processed_ids, "errors": errors}
+
+
+@router.post("/documents/process-batch-ocr", status_code=status.HTTP_202_ACCEPTED, tags=["documents"])
+async def process_batch_ocr(
+    payload: ProcessDocumentsRequest,
+    owner_id: str = Depends(get_owner_id),
+    session: AsyncSession = Depends(get_session),
+    broker: BrokerClient = Depends(get_broker_client),
+) -> dict[str, Any]:
+    processed_ids = []
+    errors = {}
+
+    for doc_id in payload.document_ids:
+        document_id_str = str(doc_id)
+        document = await documents_repo.get_document(session, document_id_str)
+
+        if document is None or document.owner_id != owner_id:
+            errors[document_id_str] = "Document not found or access denied"
+            continue
+
+        # Verifică dacă documentul a fost deja preprocesant
+        if document.status not in ["queued_ocr", "ocr", "completed", "failed"]:
+            errors[document_id_str] = "Document must be preprocessed first"
+            continue
+
+        try:
+            document.status = "queued_ocr"
+            document.error_message = None
+            await session.flush()
+
+            await _publish_event(
+                broker,
+                event_type="document_preprocessed",
+                document_id=document_id_str,
+                owner_id=owner_id,
+                payload={"reason": "batch_ocr_request"},
+            )
+            processed_ids.append(document_id_str)
+        except Exception as exc:  # noqa: BLE001
+            errors[document_id_str] = f"Failed to queue: {exc}"
+
+    if not processed_ids and errors:
+        await session.rollback()
+        raise HTTPException(status_code=400, detail={"message": "No documents could be queued for OCR.", "errors": errors})
+
+    await session.commit()
+    return {"message": "Batch OCR started", "processed_ids": processed_ids, "errors": errors}
 
 
 def _decode_base64(data_base64: str) -> bytes:

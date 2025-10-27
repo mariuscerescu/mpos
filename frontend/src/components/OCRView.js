@@ -13,19 +13,22 @@ export function createOCRView() {
   const controls = document.createElement("div");
   controls.className = "ocr-controls";
   
-  const documentSelect = document.createElement("select");
+  // Container pentru lista de documente în loc de <select>
+  const documentListContainer = document.createElement("div");
+  documentListContainer.className = "document-list-container";
+
   const extractButton = document.createElement("button");
-  extractButton.textContent = "Extract Text";
+  extractButton.textContent = "Extract Text from Selected Images";
   extractButton.disabled = true;
 
-  controls.append(documentSelect, extractButton);
+  controls.append(extractButton);
 
   const viewer = document.createElement("div");
   viewer.className = "ocr-viewer";
   
   const imagePanel = document.createElement("div");
   imagePanel.className = "ocr-image-panel";
-  imagePanel.innerHTML = "<h3>Preprocessed Image</h3><div class='ocr-image-container'><p>Select a document</p></div>";
+  imagePanel.innerHTML = "<h3>Preprocessed Image</h3><div class='ocr-image-container'><p>Select a document to preview</p></div>";
   
   const textPanel = document.createElement("div");
   textPanel.className = "ocr-text-panel";
@@ -33,18 +36,19 @@ export function createOCRView() {
   textPanelTitle.textContent = "Extracted Text";
   const textArea = document.createElement("textarea");
   textArea.className = "ocr-text-area";
-  textArea.placeholder = 'Select a document and click "Extract Text" to start OCR extraction...';
-  textArea.readOnly = false; // Editabil
+  textArea.placeholder = 'Select images and click "Extract Text" to start OCR extraction...';
+  textArea.readOnly = false;
   textPanel.append(textPanelTitle, textArea);
   
   viewer.append(imagePanel, textPanel);
 
-  section.append(title, status, controls, viewer);
+  section.append(title, status, controls, documentListContainer, viewer);
 
   let currentTokens = null;
   let documents = [];
-  let selectedDocumentId = null;
+  let selectedDocumentIds = new Set();
   let pollingInterval = null;
+  let isLoading = false;
 
   function setStatus(message, variant = "info") {
     status.textContent = message;
@@ -58,49 +62,180 @@ export function createOCRView() {
     }
   }
 
-  async function pollDocumentStatus(documentId) {
+  // Auto-refresh pentru a actualiza statusul documentelor
+  function startAutoRefresh() {
     stopPolling();
-    
     pollingInterval = setInterval(async () => {
+      if (isLoading) return; // Nu face refresh dacă este deja în curs
+      
       try {
-        const doc = await apiClient.get(`/documents/${documentId}`);
+        const docs = await apiClient.get("/documents");
+        const preprocessedDocs = docs.filter(d => 
+          d.content_type.startsWith('image/') && 
+          ["queued_ocr", "ocr", "completed", "failed"].includes(d.status)
+        );
         
-        // Update the document in our list
-        const index = documents.findIndex(d => d.id === documentId);
-        if (index >= 0) {
-          documents[index] = doc;
-        }
+        // Verifică dacă s-au schimbat statusurile
+        let hasChanges = false;
+        preprocessedDocs.forEach(newDoc => {
+          const oldDoc = documents.find(d => d.id === newDoc.id);
+          if (oldDoc && oldDoc.status !== newDoc.status) {
+            hasChanges = true;
+          }
+        });
         
-        // Update the select option text
-        const option = Array.from(documentSelect.options).find(opt => opt.value === documentId);
-        if (option) {
-          option.textContent = `${doc.filename} (${doc.status})`;
-        }
-        
-        // Check if OCR is done or failed
-        const isCompleted = doc.status === "completed";
-        const isFailed = doc.status === "failed";
-        
-        if (isCompleted) {
-          stopPolling();
-          setStatus("OCR extraction completed!", "success");
-          textArea.value = doc.ocr_text || "[No text extracted]";
-          extractButton.disabled = false;
-        } else if (isFailed) {
-          stopPolling();
-          setStatus(`OCR extraction failed: ${doc.error_message || "Unknown error"}`, "error");
-          extractButton.disabled = false;
-        } else {
-          // Still processing
-          setStatus(`Processing OCR... (${doc.status})`, "info");
+        if (hasChanges || preprocessedDocs.length !== documents.length) {
+          documents = preprocessedDocs;
+          renderDocumentList();
+          
+          // Actualizează previzualizarea dacă documentul curent este afectat
+          const previewDoc = Array.from(selectedDocumentIds).length === 1 
+            ? documents.find(d => d.id === Array.from(selectedDocumentIds)[0])
+            : null;
+          if (previewDoc) {
+            await previewDocument(previewDoc.id);
+          }
         }
       } catch (error) {
-        console.error("Polling error:", error);
-        stopPolling();
-        setStatus("Failed to check OCR status.", "error");
-        extractButton.disabled = false;
+        console.error("Auto-refresh error:", error);
       }
-    }, 2000); // Poll every 2 seconds
+    }, 3000); // Refresh la fiecare 3 secunde
+  }
+  
+  // Funcție pentru a afișa o previzualizare a unui document
+  async function previewDocument(docId) {
+    const doc = documents.find(d => d.id === docId);
+    if (!doc) return;
+
+    // Afișează imaginea preprocesată
+    const hasPreprocessed = ["queued_ocr", "ocr", "completed"].includes(doc.status);
+    if (hasPreprocessed) {
+      const processedBlob = await fetchImageBlob(doc.id, "preprocessed");
+      renderImage(processedBlob, "Preprocessed image unavailable.");
+    } else {
+      const originalBlob = await fetchImageBlob(doc.id, "original");
+      renderImage(originalBlob, "Image not preprocessed yet.");
+    }
+
+    // Afișează textul OCR dacă documentul este completed
+    if (doc.status === "completed" && doc.ocr_text) {
+      textArea.value = doc.ocr_text;
+      textArea.placeholder = "Edit extracted text...";
+    } else {
+      textArea.value = "";
+      textArea.placeholder = `Click "Extract Text" to start OCR extraction...`;
+    }
+  }
+  
+  // Funcție pentru a gestiona selecția checkbox-urilor
+  function handleCheckboxChange(event, docId) {
+    if (event.target.checked) {
+      selectedDocumentIds.add(docId);
+    } else {
+      selectedDocumentIds.delete(docId);
+    }
+    extractButton.disabled = selectedDocumentIds.size === 0 || isLoading;
+    
+    // Previzualizează documentul selectat (doar dacă este unul singur)
+    if (event.target.checked && selectedDocumentIds.size === 1) {
+      previewDocument(docId);
+    }
+  }
+
+  // Funcție pentru a randa lista de documente cu checkbox-uri
+  function renderDocumentList() {
+    documentListContainer.innerHTML = "";
+    if (documents.length === 0) {
+      documentListContainer.textContent = "No preprocessed images available. Preprocess images first.";
+      return;
+    }
+
+    documents.forEach(doc => {
+      const item = document.createElement("div");
+      item.className = "document-list-item";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.id = `ocr-doc-${doc.id}`;
+      checkbox.value = doc.id;
+      checkbox.checked = selectedDocumentIds.has(doc.id);
+      checkbox.disabled = isLoading;
+      checkbox.addEventListener('change', (e) => handleCheckboxChange(e, doc.id));
+      
+      const label = document.createElement("label");
+      label.htmlFor = `ocr-doc-${doc.id}`;
+      label.textContent = ` ${doc.filename} (${doc.status})`;
+      
+      // Adaugă un span clickabil pentru previzualizare
+      const previewSpan = document.createElement("span");
+      previewSpan.textContent = " 👁️";
+      previewSpan.style.cursor = "pointer";
+      previewSpan.style.marginLeft = "0.5rem";
+      previewSpan.title = "Preview document";
+      previewSpan.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        previewDocument(doc.id);
+      });
+      label.appendChild(previewSpan);
+
+      item.append(checkbox, label);
+      documentListContainer.append(item);
+    });
+  }
+
+  // Funcția care trimite cererea de OCR în batch
+  async function onExtractClick() {
+    if (selectedDocumentIds.size === 0 || isLoading) return;
+    
+    isLoading = true;
+    extractButton.disabled = true;
+    extractButton.textContent = "⏳ Processing...";
+    setStatus(`Starting OCR extraction for ${selectedDocumentIds.size} images...`, "info");
+
+    try {
+      const ids = Array.from(selectedDocumentIds);
+      // Apelăm noul endpoint de batch OCR
+      const response = await apiClient.post("/documents/process-batch-ocr", { document_ids: ids });
+      
+      setStatus(`${response.processed_ids.length} images queued for OCR. Auto-refreshing...`, "success");
+      selectedDocumentIds.clear();
+      
+      // Auto-refresh va actualiza lista automat
+    } catch (error) {
+      setStatus(error.message || "Failed to start batch OCR extraction.", "error");
+    } finally {
+      isLoading = false;
+      extractButton.disabled = false;
+      extractButton.textContent = "Extract Text from Selected Images";
+    }
+  }
+
+  async function fetchDocuments() {
+    if (!currentTokens) return;
+    try {
+      isLoading = true;
+      setStatus("Loading documents...", "info");
+      const docs = await apiClient.get("/documents");
+      documents = docs.filter(d => 
+        d.content_type.startsWith('image/') && 
+        ["queued_ocr", "ocr", "completed", "failed"].includes(d.status)
+      );
+      
+      if (documents.length === 0) {
+        setStatus("No preprocessed documents available. Preprocess images first.", "info");
+      } else {
+        setStatus(`Loaded ${documents.length} preprocessed document(s).`, "success");
+      }
+      
+      // Start auto-refresh
+      startAutoRefresh();
+    } catch (error) {
+      setStatus("Failed to load documents.", "error");
+    } finally {
+      isLoading = false;
+      renderDocumentList(); // Randează lista DUPĂ ce isLoading = false
+    }
   }
 
   async function fetchImageBlob(documentId, variant) {
@@ -111,11 +246,7 @@ export function createOCRView() {
           'Accept': 'image/*'
         }
       });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch ${variant} image: ${response.statusText}`);
-      }
-      
+      if (!response.ok) throw new Error(`Failed to fetch ${variant} image`);
       return await response.blob();
     } catch (error) {
       console.error(`Failed to fetch ${variant} image:`, error);
@@ -135,104 +266,6 @@ export function createOCRView() {
     }
   }
 
-  async function updateView(doc) {
-    if (!doc) {
-      renderImage(null, "Select a document");
-      textArea.value = "";
-      textArea.placeholder = "Select a document to extract text...";
-      return;
-    }
-
-    // Show preprocessed image (if available)
-    const hasPreprocessed = ["queued_ocr", "ocr", "completed"].includes(doc.status);
-    if (hasPreprocessed) {
-      const processedBlob = await fetchImageBlob(doc.id, "preprocessed");
-      renderImage(processedBlob, "Preprocessed image unavailable.");
-    } else {
-      // Fallback to original if not preprocessed yet
-      const originalBlob = await fetchImageBlob(doc.id, "original");
-      renderImage(originalBlob, "Image not preprocessed yet.");
-    }
-
-    // Only show OCR text if document status is 'completed'
-    // This ensures text appears only after OCR extraction is done
-    if (doc.status === "completed" && doc.ocr_text) {
-      textArea.value = doc.ocr_text;
-      textArea.placeholder = "Edit extracted text...";
-    } else {
-      textArea.value = "";
-      textArea.placeholder = `Click "Extract Text" to start OCR extraction...`;
-    }
-  }
-
-  async function onSelectChange() {
-    stopPolling();
-    selectedDocumentId = documentSelect.value;
-    extractButton.disabled = !selectedDocumentId;
-    const selectedDoc = documents.find(d => d.id === selectedDocumentId);
-    await updateView(selectedDoc);
-  }
-
-  async function onExtractClick() {
-    if (!selectedDocumentId) return;
-    
-    const selectedDoc = documents.find(d => d.id === selectedDocumentId);
-    
-    // Check if document needs to be processed first
-    if (!["queued_ocr", "ocr", "completed"].includes(selectedDoc?.status)) {
-      setStatus("Document must be preprocessed first. Go to Preprocess section.", "error");
-      return;
-    }
-
-    // If already completed, just show the text
-    if (selectedDoc?.status === "completed" && selectedDoc?.ocr_text) {
-      textArea.value = selectedDoc.ocr_text;
-      setStatus("OCR text already extracted.", "success");
-      return;
-    }
-
-    // Start OCR extraction
-    extractButton.disabled = true;
-    setStatus("Starting OCR extraction...", "info");
-
-    try {
-      await apiClient.post(`/documents/${selectedDocumentId}/process`, {});
-      setStatus("OCR extraction started. Checking status...", "info");
-      await pollDocumentStatus(selectedDocumentId);
-    } catch (error) {
-      setStatus(error.message || "Failed to start OCR extraction.", "error");
-      extractButton.disabled = false;
-    }
-  }
-
-  async function fetchDocuments() {
-    if (!currentTokens) return;
-    try {
-      const docs = await apiClient.get("/documents");
-      // Only show images that have been preprocessed or completed
-      documents = docs.filter(d => 
-        d.content_type.startsWith('image/') && 
-        ["queued_ocr", "ocr", "completed"].includes(d.status)
-      );
-      
-      documentSelect.innerHTML = '<option value="">-- Select a document --</option>';
-      documents.forEach(doc => {
-        const option = document.createElement("option");
-        option.value = doc.id;
-        option.textContent = `${doc.filename} (${doc.status})`;
-        documentSelect.appendChild(option);
-      });
-      
-      if (documents.length === 0) {
-        setStatus("No preprocessed documents available. Preprocess images first.", "info");
-      } else {
-        setStatus(`Loaded ${documents.length} preprocessed document(s).`, "success");
-      }
-    } catch (error) {
-      setStatus("Failed to load documents.", "error");
-    }
-  }
-
   function setTokens(tokens) {
     currentTokens = tokens;
     if (tokens) {
@@ -242,27 +275,19 @@ export function createOCRView() {
     }
   }
   
-  // Listen for document upload events from other components
   const handleDocumentUploaded = () => {
-    if (currentTokens) {
-      fetchDocuments();
-    }
+    if (currentTokens) fetchDocuments();
   };
   
-  // Listen for preprocessing completion events
   const handleDocumentPreprocessed = () => {
-    if (currentTokens) {
-      fetchDocuments();
-    }
+    if (currentTokens) fetchDocuments();
   };
   
   window.addEventListener('documentUploaded', handleDocumentUploaded);
   window.addEventListener('documentPreprocessed', handleDocumentPreprocessed);
-  
-  documentSelect.addEventListener("change", onSelectChange);
   extractButton.addEventListener("click", onExtractClick);
   
-  setStatus("Select a preprocessed document to extract text.", "info");
+  setStatus("Select preprocessed documents to extract text.", "info");
 
   return { element: section, setTokens };
 }

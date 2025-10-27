@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+from typing import Any
+
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 
@@ -10,7 +12,7 @@ from ..clients.user_client import UserServiceClient
 from ..config import get_settings
 from ..core.auth import get_current_user_id
 from ..schemas.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenPair
-from ..schemas.document import DocumentMetadata, DocumentUploadResponse
+from ..schemas.document import DocumentMetadata, DocumentUploadResponse, ProcessDocumentsRequest
 from ..schemas.user import UserProfile
 
 settings = get_settings()
@@ -148,6 +150,32 @@ async def requeue_document(
     try:
         data = await client.requeue_document(user_id, document_id)
         return DocumentMetadata.model_validate(data)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text) from exc
+
+
+@router.post("/documents/process-batch", status_code=status.HTTP_202_ACCEPTED, tags=["documents"])
+async def process_batch(
+    payload: ProcessDocumentsRequest,
+    user_id: str = Depends(get_current_user_id),
+    client: DocumentServiceClient = Depends(get_document_client),
+) -> dict[str, Any]:
+    try:
+        result = await client.process_batch(user_id, payload.document_ids)
+        return result
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text) from exc
+
+
+@router.post("/documents/process-batch-ocr", status_code=status.HTTP_202_ACCEPTED, tags=["documents"])
+async def process_batch_ocr(
+    payload: ProcessDocumentsRequest,
+    user_id: str = Depends(get_current_user_id),
+    client: DocumentServiceClient = Depends(get_document_client),
+) -> dict[str, Any]:
+    try:
+        result = await client.process_batch_ocr(user_id, payload.document_ids)
+        return result
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text) from exc
 

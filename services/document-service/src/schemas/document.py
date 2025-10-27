@@ -58,3 +58,7 @@ class StatusUpdatePayload(BaseModel):
     status: DocumentStatus
     error_message: Optional[str] = None
     ocr_text: Optional[str] = None
+
+
+class ProcessDocumentsRequest(BaseModel):
+    document_ids: list[UUID] = Field(..., description="List of document IDs to process")

@@ -633,3 +633,42 @@ button.danger:hover {
   border-color: #1d4ed8;
   box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.1);
 }
+
+/* Document List Container Styles - pentru batch processing */
+.document-list-container {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #cbd5f5;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 1.5rem;
+  background-color: #f8fafc;
+}
+
+.document-list-item {
+  display: flex;
+  align-items: center;
+  padding: 0.4rem 0;
+}
+
+.document-list-item label {
+  margin-left: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.document-list-item label:hover {
+  color: #1d4ed8;
+}
+
+.document-list-item input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
+.document-list-item input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+

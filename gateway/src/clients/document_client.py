@@ -52,6 +52,24 @@ class DocumentServiceClient:
         response.raise_for_status()
         return response.json()
 
+    async def process_batch(self, user_id: str, document_ids: list[str]) -> dict[str, Any]:
+        response = await self._client.post(
+            "/documents/process-batch",
+            headers={"X-User-Id": user_id},
+            json={"document_ids": document_ids},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def process_batch_ocr(self, user_id: str, document_ids: list[str]) -> dict[str, Any]:
+        response = await self._client.post(
+            "/documents/process-batch-ocr",
+            headers={"X-User-Id": user_id},
+            json={"document_ids": document_ids},
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def get_document_binary(self, document_id: str, variant: str = "original") -> bytes:
         response = await self._client.get(
             f"/internal/documents/{document_id}/binary",

@@ -29,3 +29,7 @@ class DocumentMetadata(BaseModel):
 
 class DocumentUploadResponse(BaseModel):
     document: DocumentMetadata
+
+
+class ProcessDocumentsRequest(BaseModel):
+    document_ids: list[str]
