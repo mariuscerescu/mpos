@@ -19,6 +19,7 @@ export function createUploadStatus() {
   const fileInput = document.createElement("input");
   fileInput.type = "file";
   fileInput.accept = "image/*,application/pdf";
+  fileInput.multiple = true; // Permite selecția multiplă
 
   const uploadButton = document.createElement("button");
   uploadButton.type = "submit";
@@ -147,28 +148,58 @@ export function createUploadStatus() {
       return;
     }
 
-    const file = fileInput.files?.[0];
-    if (!file) {
-      setStatus("Select a file before uploading.", "error");
+    const files = Array.from(fileInput.files || []);
+    if (files.length === 0) {
+      setStatus("Select at least one file before uploading.", "error");
       return;
     }
 
     uploadButton.disabled = true;
+    fileInput.disabled = true;
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    setStatus(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}...`, "info");
+    
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const result = await apiClient.postForm("/documents", formData);
-      const document = result?.document || result;
-      setStatus(`Uploaded ${document.filename}.`, "success");
+      // Upload fișierele una câte una
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          const result = await apiClient.postForm("/documents", formData);
+          const document = result?.document || result;
+          successCount++;
+          
+          // Notify other components for each uploaded document
+          window.dispatchEvent(new CustomEvent('documentUploaded', { detail: document }));
+          
+          // Update status during upload
+          setStatus(`Uploading... ${successCount + failCount}/${files.length}`, "info");
+        } catch (error) {
+          console.error(`Failed to upload ${file.name}:`, error);
+          failCount++;
+        }
+      }
+      
+      // Final status message
+      if (failCount === 0) {
+        setStatus(`Successfully uploaded ${successCount} file${successCount > 1 ? 's' : ''}.`, "success");
+      } else if (successCount === 0) {
+        setStatus(`Failed to upload all ${failCount} file${failCount > 1 ? 's' : ''}.`, "error");
+      } else {
+        setStatus(`Uploaded ${successCount} file${successCount > 1 ? 's' : ''}, ${failCount} failed.`, "info");
+      }
+      
       fileInput.value = "";
       await fetchDocuments();
-      
-      // Notify other components that a new document was uploaded
-      window.dispatchEvent(new CustomEvent('documentUploaded', { detail: document }));
     } catch (error) {
       setStatus(error.message || "Upload failed.", "error");
     } finally {
       uploadButton.disabled = false;
+      fileInput.disabled = !currentTokens;
     }
   });
 
