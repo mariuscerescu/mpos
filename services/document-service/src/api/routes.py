@@ -330,13 +330,14 @@ async def upload_variant(
             document.status = "queued_ocr"
             document.error_message = None
             await session.flush()
-            await _publish_event(
-                broker,
-                event_type="document_preprocessed",
-                document_id=document_id,
-                owner_id=document.owner_id,
-                payload={"variant": payload.variant},
-            )
+            # NU publicăm eveniment automat - OCR-ul se va face doar când utilizatorul apasă butonul
+            # await _publish_event(
+            #     broker,
+            #     event_type="document_preprocessed",
+            #     document_id=document_id,
+            #     owner_id=document.owner_id,
+            #     payload={"variant": payload.variant},
+            # )
 
         await session.commit()
         return Response(status_code=status.HTTP_204_NO_CONTENT)
