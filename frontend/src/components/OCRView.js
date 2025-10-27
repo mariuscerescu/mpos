@@ -242,6 +242,23 @@ export function createOCRView() {
     }
   }
   
+  // Listen for document upload events from other components
+  const handleDocumentUploaded = () => {
+    if (currentTokens) {
+      fetchDocuments();
+    }
+  };
+  
+  // Listen for preprocessing completion events
+  const handleDocumentPreprocessed = () => {
+    if (currentTokens) {
+      fetchDocuments();
+    }
+  };
+  
+  window.addEventListener('documentUploaded', handleDocumentUploaded);
+  window.addEventListener('documentPreprocessed', handleDocumentPreprocessed);
+  
   documentSelect.addEventListener("change", onSelectChange);
   extractButton.addEventListener("click", onExtractClick);
   

@@ -162,6 +162,9 @@ export function createUploadStatus() {
       setStatus(`Uploaded ${document.filename}.`, "success");
       fileInput.value = "";
       await fetchDocuments();
+      
+      // Notify other components that a new document was uploaded
+      window.dispatchEvent(new CustomEvent('documentUploaded', { detail: document }));
     } catch (error) {
       setStatus(error.message || "Upload failed.", "error");
     } finally {

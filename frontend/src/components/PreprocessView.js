@@ -80,6 +80,9 @@ export function createPreprocessView() {
           setStatus("Preprocessing completed! Displaying result.", "success");
           await updateImageView(doc);
           preprocessButton.disabled = false;
+          
+          // Notify OCR component that preprocessing is complete
+          window.dispatchEvent(new CustomEvent('documentPreprocessed', { detail: doc }));
         } else if (isFailed) {
           stopPolling();
           setStatus(`Preprocessing failed: ${doc.error_message || "Unknown error"}`, "error");
@@ -200,6 +203,15 @@ export function createPreprocessView() {
       stopPolling(); // Stop polling when logging out
     }
   }
+  
+  // Listen for document upload events from other components
+  const handleDocumentUploaded = () => {
+    if (currentTokens) {
+      fetchDocuments();
+    }
+  };
+  
+  window.addEventListener('documentUploaded', handleDocumentUploaded);
   
   documentSelect.addEventListener("change", onSelectChange);
   preprocessButton.addEventListener("click", onPreprocessClick);
