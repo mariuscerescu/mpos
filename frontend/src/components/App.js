@@ -2,6 +2,7 @@ import { apiClient } from "../api/client";
 import { createAuthForm, getStoredProfile } from "./AuthForm";
 import { createUploadStatus } from "./UploadStatus";
 import { createPreprocessView } from "./PreprocessView";
+import { createOCRView } from "./OCRView";
 
 const dashboardSections = [
   { id: "upload", label: "Upload", description: "Manage incoming documents" },
@@ -40,11 +41,7 @@ export function createApp() {
 
   const uploadUi = createUploadStatus();
   const preprocessPanel = createPreprocessView();
-  const ocrPanel = createSectionPlaceholder(
-    "OCR Output",
-    "Validate extracted text",
-    "Inspect OCR runs, compare revisions, and export structured data once documents have been processed.",
-  );
+  const ocrPanel = createOCRView();
 
   let currentProfile = getStoredProfile();
   let activeSection = "upload";
@@ -160,7 +157,7 @@ export function createApp() {
         content.append(preprocessPanel.element);
         break;
       case "ocr":
-        content.append(ocrPanel);
+        content.append(ocrPanel.element);
         break;
       default:
         content.append(uploadUi.element);
@@ -185,6 +182,7 @@ export function createApp() {
     authForm.reset();
     uploadUi.setTokens(null);
     preprocessPanel.setTokens(null);
+    ocrPanel.setTokens(null);
     main.append(authForm.element);
   }
 
@@ -194,6 +192,7 @@ export function createApp() {
     updateUser(profile ?? currentProfile ?? {});
     uploadUi.setTokens(tokens);
     preprocessPanel.setTokens(tokens);
+    ocrPanel.setTokens(tokens);
     activeSection = "";
     setActiveSection("upload");
     main.append(shell);
