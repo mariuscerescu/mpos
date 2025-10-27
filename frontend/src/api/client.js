@@ -174,6 +174,7 @@ function logout() {
 }
 
 export const apiClient = {
+  baseUrl,
   request,
   get(path, options = {}) {
     return request(path, { ...options, method: "GET" });

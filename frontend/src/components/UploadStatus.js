@@ -36,7 +36,7 @@ export function createUploadStatus() {
   const table = document.createElement("table");
   table.className = "document-table";
   const thead = document.createElement("thead");
-  thead.innerHTML = "<tr><th>Filename</th><th>Status</th><th>Updated</th><th>Actions</th></tr>";
+  thead.innerHTML = "<tr><th>Filename</th><th>Actions</th></tr>";
   const tbody = document.createElement("tbody");
   table.append(thead, tbody);
 
@@ -49,17 +49,6 @@ export function createUploadStatus() {
   function setStatus(message, variant = "info") {
     status.textContent = message;
     status.className = `status-message status-${variant}`;
-  }
-
-  function createStatusLabel(doc) {
-    const span = document.createElement("span");
-    const statusClass = doc.status.replace(/_/g, "-");
-    span.className = `status-label status-${statusClass}`;
-    span.textContent = doc.status.replace(/_/g, " ");
-    if (doc.status === "failed" && doc.error_message) {
-      span.title = doc.error_message;
-    }
-    return span;
   }
 
   function createActionButton(label, handler, variant) {
@@ -81,7 +70,7 @@ export function createUploadStatus() {
     if (!documents.length) {
       const emptyRow = document.createElement("tr");
       const cell = document.createElement("td");
-      cell.colSpan = 4;
+      cell.colSpan = 2;
       cell.textContent = currentTokens
         ? "No documents uploaded yet."
         : "Authenticate to view documents.";
@@ -96,19 +85,12 @@ export function createUploadStatus() {
       const filenameCell = document.createElement("td");
       filenameCell.textContent = doc.filename;
 
-      const statusCell = document.createElement("td");
-      statusCell.appendChild(createStatusLabel(doc));
-
-      const updatedCell = document.createElement("td");
-      updatedCell.textContent = doc.updated_at ? new Date(doc.updated_at).toLocaleString() : "—";
-
       const actionsCell = document.createElement("td");
       actionsCell.append(
-        createActionButton("Procesează", () => requeueDocument(doc.id), "secondary"),
         createActionButton("Delete", () => deleteDocument(doc.id), "danger"),
       );
 
-      row.append(filenameCell, statusCell, updatedCell, actionsCell);
+      row.append(filenameCell, actionsCell);
       tbody.appendChild(row);
     });
   }
@@ -142,16 +124,6 @@ export function createUploadStatus() {
     } finally {
       isLoading = false;
       refreshButton.disabled = !currentTokens;
-    }
-  }
-
-  async function requeueDocument(documentId) {
-    try {
-      await apiClient.post(`/documents/${documentId}/process`, {});
-      setStatus("Document requeued for processing.", "success");
-      await fetchDocuments();
-    } catch (error) {
-      setStatus(error.message || "Failed to requeue document.", "error");
     }
   }
 

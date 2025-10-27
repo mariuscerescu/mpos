@@ -509,3 +509,55 @@ button.danger:hover {
     max-width: 100%;
   }
 }
+
+/* Preprocess View Styles */
+.preprocess-controls {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  align-items: center;
+}
+
+.preprocess-controls select {
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #cbd5f5;
+  min-width: 250px;
+}
+
+.preprocess-viewer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-top: 1rem;
+}
+
+.image-panel h3 {
+  margin-top: 0;
+  color: #374151;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 0.5rem;
+}
+
+.image-panel .image-container {
+  width: 100%;
+  min-height: 200px;
+  background-color: #f8fafc;
+  border: 1px dashed #cbd5f5;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.image-panel .image-container img {
+  max-width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.image-panel .image-container p {
+  color: #64748b;
+}

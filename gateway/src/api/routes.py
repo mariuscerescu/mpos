@@ -150,3 +150,18 @@ async def requeue_document(
         return DocumentMetadata.model_validate(data)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text) from exc
+
+
+@router.get("/documents/{document_id}/binary", response_class=Response, tags=["documents"])
+async def get_document_binary(
+    document_id: str,
+    variant: str = "original",
+    user_id: str = Depends(get_current_user_id),
+    client: DocumentServiceClient = Depends(get_document_client),
+) -> Response:
+    try:
+        content = await client.get_document_binary(document_id, variant)
+        media_type = "image/png" if variant == "preprocessed" else "application/octet-stream"
+        return Response(content=content, media_type=media_type)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text) from exc

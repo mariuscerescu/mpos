@@ -51,3 +51,11 @@ class DocumentServiceClient:
         )
         response.raise_for_status()
         return response.json()
+
+    async def get_document_binary(self, document_id: str, variant: str = "original") -> bytes:
+        response = await self._client.get(
+            f"/internal/documents/{document_id}/binary",
+            params={"variant": variant},
+        )
+        response.raise_for_status()
+        return response.content

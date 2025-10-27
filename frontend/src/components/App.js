@@ -1,6 +1,7 @@
 import { apiClient } from "../api/client";
 import { createAuthForm, getStoredProfile } from "./AuthForm";
 import { createUploadStatus } from "./UploadStatus";
+import { createPreprocessView } from "./PreprocessView";
 
 const dashboardSections = [
   { id: "upload", label: "Upload", description: "Manage incoming documents" },
@@ -38,11 +39,7 @@ export function createApp() {
   main.className = "app-main";
 
   const uploadUi = createUploadStatus();
-  const preprocessPanel = createSectionPlaceholder(
-    "Preprocessing",
-    "Enhance scans before OCR",
-    "Track and configure image cleanup, denoising, and layout normalization tasks. Pipeline controls will appear here as the service is integrated.",
-  );
+  const preprocessPanel = createPreprocessView();
   const ocrPanel = createSectionPlaceholder(
     "OCR Output",
     "Validate extracted text",
@@ -160,7 +157,7 @@ export function createApp() {
         content.append(uploadUi.element);
         break;
       case "preprocess":
-        content.append(preprocessPanel);
+        content.append(preprocessPanel.element);
         break;
       case "ocr":
         content.append(ocrPanel);
@@ -187,6 +184,7 @@ export function createApp() {
     main.innerHTML = "";
     authForm.reset();
     uploadUi.setTokens(null);
+    preprocessPanel.setTokens(null);
     main.append(authForm.element);
   }
 
@@ -195,6 +193,7 @@ export function createApp() {
     main.innerHTML = "";
     updateUser(profile ?? currentProfile ?? {});
     uploadUi.setTokens(tokens);
+    preprocessPanel.setTokens(tokens);
     activeSection = "";
     setActiveSection("upload");
     main.append(shell);
