@@ -160,7 +160,7 @@ services:
       BROKER_SERVICE_URL: http://broker-service:8003
       DOCUMENT_SERVICE_URL: http://document-service:8002
       QUEUE_TOPIC: ocr_extract
-      OCR_MODEL_NAME: microsoft/trocr-base-printed
+      TESSERACT_LANG: eng
     volumes:
       - ./shared/python:/app/shared
 

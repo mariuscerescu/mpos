@@ -8,7 +8,10 @@ class Settings:
     broker_service_url: str = os.getenv("BROKER_SERVICE_URL", "http://broker-service:8003")
     document_service_url: str = os.getenv("DOCUMENT_SERVICE_URL", "http://document-service:8002")
     queue_topic: str = os.getenv("QUEUE_TOPIC", "ocr_extract")
-    model_name: str = os.getenv("OCR_MODEL_NAME", "microsoft/trocr-small-printed")
+    # Tesseract configurare
+    tesseract_lang: str = os.getenv("TESSERACT_LANG", "eng")
+    tesseract_psm: str = os.getenv("TESSERACT_PSM", "6")  # Page segmentation mode
+    tesseract_oem: str = os.getenv("TESSERACT_OEM", "3")  # OCR Engine mode
 
 
 def get_settings() -> Settings:

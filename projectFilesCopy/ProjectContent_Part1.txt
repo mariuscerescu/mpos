@@ -161,7 +161,7 @@ services:
       BROKER_SERVICE_URL: http://broker-service:8003
       DOCUMENT_SERVICE_URL: http://document-service:8002
       QUEUE_TOPIC: ocr_extract
-      OCR_MODEL_NAME: microsoft/trocr-small-printed
+      OCR_MODEL_NAME: microsoft/trocr-base-printed
     volumes:
       - ./shared/python:/app/shared
 
@@ -1754,6 +1754,7 @@ function logout() {
 }
 
 export const apiClient = {
+  baseUrl,
   request,
   get(path, options = {}) {
     return request(path, { ...options, method: "GET" });
@@ -1789,6 +1790,8 @@ export const apiClient = {
 import { apiClient } from "../api/client";
 import { createAuthForm, getStoredProfile } from "./AuthForm";
 import { createUploadStatus } from "./UploadStatus";
+import { createPreprocessView } from "./PreprocessView";
+import { createOCRView } from "./OCRView";
 
 const dashboardSections = [
   { id: "upload", label: "Upload", description: "Manage incoming documents" },
@@ -1826,16 +1829,8 @@ export function createApp() {
   main.className = "app-main";
 
   const uploadUi = createUploadStatus();
-  const preprocessPanel = createSectionPlaceholder(
-    "Preprocessing",
-    "Enhance scans before OCR",
-    "Track and configure image cleanup, denoising, and layout normalization tasks. Pipeline controls will appear here as the service is integrated.",
-  );
-  const ocrPanel = createSectionPlaceholder(
-    "OCR Output",
-    "Validate extracted text",
-    "Inspect OCR runs, compare revisions, and export structured data once documents have been processed.",
-  );
+  const preprocessPanel = createPreprocessView();
+  const ocrPanel = createOCRView();
 
   let currentProfile = getStoredProfile();
   let activeSection = "upload";
@@ -1948,10 +1943,10 @@ export function createApp() {
         content.append(uploadUi.element);
         break;
       case "preprocess":
-        content.append(preprocessPanel);
+        content.append(preprocessPanel.element);
         break;
       case "ocr":
-        content.append(ocrPanel);
+        content.append(ocrPanel.element);
         break;
       default:
         content.append(uploadUi.element);
@@ -1975,6 +1970,8 @@ export function createApp() {
     main.innerHTML = "";
     authForm.reset();
     uploadUi.setTokens(null);
+    preprocessPanel.setTokens(null);
+    ocrPanel.setTokens(null);
     main.append(authForm.element);
   }
 
@@ -1983,6 +1980,8 @@ export function createApp() {
     main.innerHTML = "";
     updateUser(profile ?? currentProfile ?? {});
     uploadUi.setTokens(tokens);
+    preprocessPanel.setTokens(tokens);
+    ocrPanel.setTokens(tokens);
     activeSection = "";
     setActiveSection("upload");
     main.append(shell);
@@ -2281,6 +2280,506 @@ export function createAuthForm({ onAuthChange } = {}) {
 --- End of D:\Disk D 13-09-25\Universitate\Master\Anul2\sem1\MSOP\frontend\src\components\AuthForm.js ---
 
 
+--- Start of D:\Disk D 13-09-25\Universitate\Master\Anul2\sem1\MSOP\frontend\src\components\OCRView.js ---
+import { apiClient } from "../api/client";
+
+export function createOCRView() {
+  const section = document.createElement("section");
+  section.className = "ocr-section";
+
+  const title = document.createElement("h2");
+  title.textContent = "OCR Text Extraction";
+  
+  const status = document.createElement("p");
+  status.className = "status-message";
+
+  const controls = document.createElement("div");
+  controls.className = "ocr-controls";
+  
+  const documentSelect = document.createElement("select");
+  const extractButton = document.createElement("button");
+  extractButton.textContent = "Extract Text";
+  extractButton.disabled = true;
+
+  controls.append(documentSelect, extractButton);
+
+  const viewer = document.createElement("div");
+  viewer.className = "ocr-viewer";
+  
+  const imagePanel = document.createElement("div");
+  imagePanel.className = "ocr-image-panel";
+  imagePanel.innerHTML = "<h3>Preprocessed Image</h3><div class='ocr-image-container'><p>Select a document</p></div>";
+  
+  const textPanel = document.createElement("div");
+  textPanel.className = "ocr-text-panel";
+  const textPanelTitle = document.createElement("h3");
+  textPanelTitle.textContent = "Extracted Text";
+  const textArea = document.createElement("textarea");
+  textArea.className = "ocr-text-area";
+  textArea.placeholder = 'Select a document and click "Extract Text" to start OCR extraction...';
+  textArea.readOnly = false; // Editabil
+  textPanel.append(textPanelTitle, textArea);
+  
+  viewer.append(imagePanel, textPanel);
+
+  section.append(title, status, controls, viewer);
+
+  let currentTokens = null;
+  let documents = [];
+  let selectedDocumentId = null;
+  let pollingInterval = null;
+
+  function setStatus(message, variant = "info") {
+    status.textContent = message;
+    status.className = `status-message status-${variant}`;
+  }
+
+  function stopPolling() {
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      pollingInterval = null;
+    }
+  }
+
+  async function pollDocumentStatus(documentId) {
+    stopPolling();
+    
+    pollingInterval = setInterval(async () => {
+      try {
+        const doc = await apiClient.get(`/documents/${documentId}`);
+        
+        // Update the document in our list
+        const index = documents.findIndex(d => d.id === documentId);
+        if (index >= 0) {
+          documents[index] = doc;
+        }
+        
+        // Update the select option text
+        const option = Array.from(documentSelect.options).find(opt => opt.value === documentId);
+        if (option) {
+          option.textContent = `${doc.filename} (${doc.status})`;
+        }
+        
+        // Check if OCR is done or failed
+        const isCompleted = doc.status === "completed";
+        const isFailed = doc.status === "failed";
+        
+        if (isCompleted) {
+          stopPolling();
+          setStatus("OCR extraction completed!", "success");
+          textArea.value = doc.ocr_text || "[No text extracted]";
+          extractButton.disabled = false;
+        } else if (isFailed) {
+          stopPolling();
+          setStatus(`OCR extraction failed: ${doc.error_message || "Unknown error"}`, "error");
+          extractButton.disabled = false;
+        } else {
+          // Still processing
+          setStatus(`Processing OCR... (${doc.status})`, "info");
+        }
+      } catch (error) {
+        console.error("Polling error:", error);
+        stopPolling();
+        setStatus("Failed to check OCR status.", "error");
+        extractButton.disabled = false;
+      }
+    }, 2000); // Poll every 2 seconds
+  }
+
+  async function fetchImageBlob(documentId, variant) {
+    try {
+      const response = await fetch(`${apiClient.baseUrl}/documents/${documentId}/binary?variant=${variant}`, {
+        headers: { 
+          'Authorization': `Bearer ${currentTokens.accessToken}`,
+          'Accept': 'image/*'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${variant} image: ${response.statusText}`);
+      }
+      
+      return await response.blob();
+    } catch (error) {
+      console.error(`Failed to fetch ${variant} image:`, error);
+      return null;
+    }
+  }
+  
+  function renderImage(blob, defaultMessage) {
+    const container = imagePanel.querySelector('.ocr-image-container');
+    container.innerHTML = "";
+    if (blob) {
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(blob);
+      container.appendChild(img);
+    } else {
+      container.innerHTML = `<p>${defaultMessage}</p>`;
+    }
+  }
+
+  async function updateView(doc) {
+    if (!doc) {
+      renderImage(null, "Select a document");
+      textArea.value = "";
+      textArea.placeholder = "Select a document to extract text...";
+      return;
+    }
+
+    // Show preprocessed image (if available)
+    const hasPreprocessed = ["queued_ocr", "ocr", "completed"].includes(doc.status);
+    if (hasPreprocessed) {
+      const processedBlob = await fetchImageBlob(doc.id, "preprocessed");
+      renderImage(processedBlob, "Preprocessed image unavailable.");
+    } else {
+      // Fallback to original if not preprocessed yet
+      const originalBlob = await fetchImageBlob(doc.id, "original");
+      renderImage(originalBlob, "Image not preprocessed yet.");
+    }
+
+    // Only show OCR text if document status is 'completed'
+    // This ensures text appears only after OCR extraction is done
+    if (doc.status === "completed" && doc.ocr_text) {
+      textArea.value = doc.ocr_text;
+      textArea.placeholder = "Edit extracted text...";
+    } else {
+      textArea.value = "";
+      textArea.placeholder = `Click "Extract Text" to start OCR extraction...`;
+    }
+  }
+
+  async function onSelectChange() {
+    stopPolling();
+    selectedDocumentId = documentSelect.value;
+    extractButton.disabled = !selectedDocumentId;
+    const selectedDoc = documents.find(d => d.id === selectedDocumentId);
+    await updateView(selectedDoc);
+  }
+
+  async function onExtractClick() {
+    if (!selectedDocumentId) return;
+    
+    const selectedDoc = documents.find(d => d.id === selectedDocumentId);
+    
+    // Check if document needs to be processed first
+    if (!["queued_ocr", "ocr", "completed"].includes(selectedDoc?.status)) {
+      setStatus("Document must be preprocessed first. Go to Preprocess section.", "error");
+      return;
+    }
+
+    // If already completed, just show the text
+    if (selectedDoc?.status === "completed" && selectedDoc?.ocr_text) {
+      textArea.value = selectedDoc.ocr_text;
+      setStatus("OCR text already extracted.", "success");
+      return;
+    }
+
+    // Start OCR extraction
+    extractButton.disabled = true;
+    setStatus("Starting OCR extraction...", "info");
+
+    try {
+      await apiClient.post(`/documents/${selectedDocumentId}/process`, {});
+      setStatus("OCR extraction started. Checking status...", "info");
+      await pollDocumentStatus(selectedDocumentId);
+    } catch (error) {
+      setStatus(error.message || "Failed to start OCR extraction.", "error");
+      extractButton.disabled = false;
+    }
+  }
+
+  async function fetchDocuments() {
+    if (!currentTokens) return;
+    try {
+      const docs = await apiClient.get("/documents");
+      // Only show images that have been preprocessed or completed
+      documents = docs.filter(d => 
+        d.content_type.startsWith('image/') && 
+        ["queued_ocr", "ocr", "completed"].includes(d.status)
+      );
+      
+      documentSelect.innerHTML = '<option value="">-- Select a document --</option>';
+      documents.forEach(doc => {
+        const option = document.createElement("option");
+        option.value = doc.id;
+        option.textContent = `${doc.filename} (${doc.status})`;
+        documentSelect.appendChild(option);
+      });
+      
+      if (documents.length === 0) {
+        setStatus("No preprocessed documents available. Preprocess images first.", "info");
+      } else {
+        setStatus(`Loaded ${documents.length} preprocessed document(s).`, "success");
+      }
+    } catch (error) {
+      setStatus("Failed to load documents.", "error");
+    }
+  }
+
+  function setTokens(tokens) {
+    currentTokens = tokens;
+    if (tokens) {
+      fetchDocuments();
+    } else {
+      stopPolling();
+    }
+  }
+  
+  // Listen for document upload events from other components
+  const handleDocumentUploaded = () => {
+    if (currentTokens) {
+      fetchDocuments();
+    }
+  };
+  
+  // Listen for preprocessing completion events
+  const handleDocumentPreprocessed = () => {
+    if (currentTokens) {
+      fetchDocuments();
+    }
+  };
+  
+  window.addEventListener('documentUploaded', handleDocumentUploaded);
+  window.addEventListener('documentPreprocessed', handleDocumentPreprocessed);
+  
+  documentSelect.addEventListener("change", onSelectChange);
+  extractButton.addEventListener("click", onExtractClick);
+  
+  setStatus("Select a preprocessed document to extract text.", "info");
+
+  return { element: section, setTokens };
+}
+
+--- End of D:\Disk D 13-09-25\Universitate\Master\Anul2\sem1\MSOP\frontend\src\components\OCRView.js ---
+
+
+--- Start of D:\Disk D 13-09-25\Universitate\Master\Anul2\sem1\MSOP\frontend\src\components\PreprocessView.js ---
+import { apiClient } from "../api/client";
+
+export function createPreprocessView() {
+  const section = document.createElement("section");
+  section.className = "preprocess-section";
+
+  const title = document.createElement("h2");
+  title.textContent = "Image Preprocessing";
+  
+  const status = document.createElement("p");
+  status.className = "status-message";
+
+  const controls = document.createElement("div");
+  controls.className = "preprocess-controls";
+  
+  const documentSelect = document.createElement("select");
+  const preprocessButton = document.createElement("button");
+  preprocessButton.textContent = "Preprocess Image";
+  preprocessButton.disabled = true;
+
+  controls.append(documentSelect, preprocessButton);
+
+  const viewer = document.createElement("div");
+  viewer.className = "preprocess-viewer";
+  
+  const originalPanel = document.createElement("div");
+  originalPanel.className = "image-panel";
+  originalPanel.innerHTML = "<h3>Original</h3><div class='image-container'><p>Select a document</p></div>";
+  
+  const processedPanel = document.createElement("div");
+  processedPanel.className = "image-panel";
+  processedPanel.innerHTML = "<h3>Preprocessed</h3><div class='image-container'><p>Not processed yet</p></div>";
+  
+  viewer.append(originalPanel, processedPanel);
+
+  section.append(title, status, controls, viewer);
+
+  let currentTokens = null;
+  let documents = [];
+  let selectedDocumentId = null;
+  let pollingInterval = null;
+
+  function setStatus(message, variant = "info") {
+    status.textContent = message;
+    status.className = `status-message status-${variant}`;
+  }
+
+  function stopPolling() {
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      pollingInterval = null;
+    }
+  }
+
+  async function pollDocumentStatus(documentId) {
+    stopPolling(); // Clear any existing polling
+    
+    pollingInterval = setInterval(async () => {
+      try {
+        const doc = await apiClient.get(`/documents/${documentId}`);
+        
+        // Update the document in our list
+        const index = documents.findIndex(d => d.id === documentId);
+        if (index >= 0) {
+          documents[index] = doc;
+        }
+        
+        // Update the select option text
+        const option = Array.from(documentSelect.options).find(opt => opt.value === documentId);
+        if (option) {
+          option.textContent = `${doc.filename} (${doc.status})`;
+        }
+        
+        // Check if processing is done or failed
+        const isProcessed = ["queued_ocr", "ocr", "completed"].includes(doc.status);
+        const isFailed = doc.status === "failed";
+        
+        if (isProcessed) {
+          stopPolling();
+          setStatus("Preprocessing completed! Displaying result.", "success");
+          await updateImageView(doc);
+          preprocessButton.disabled = false;
+          
+          // Notify OCR component that preprocessing is complete
+          window.dispatchEvent(new CustomEvent('documentPreprocessed', { detail: doc }));
+        } else if (isFailed) {
+          stopPolling();
+          setStatus(`Preprocessing failed: ${doc.error_message || "Unknown error"}`, "error");
+          preprocessButton.disabled = false;
+        } else {
+          // Still processing
+          setStatus(`Processing... (${doc.status})`, "info");
+        }
+      } catch (error) {
+        console.error("Polling error:", error);
+        stopPolling();
+        setStatus("Failed to check processing status.", "error");
+        preprocessButton.disabled = false;
+      }
+    }, 2000); // Poll every 2 seconds
+  }
+  
+  async function fetchImageBlob(documentId, variant) {
+    try {
+      const response = await fetch(`${apiClient.baseUrl}/documents/${documentId}/binary?variant=${variant}`, {
+        headers: { 
+          'Authorization': `Bearer ${currentTokens.accessToken}`,
+          'Accept': 'image/*'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${variant} image: ${response.statusText}`);
+      }
+      
+      return await response.blob();
+    } catch (error) {
+      console.error(`Failed to fetch ${variant} image:`, error);
+      return null;
+    }
+  }
+  
+  function renderImage(panel, blob, defaultMessage) {
+    const container = panel.querySelector('.image-container');
+    container.innerHTML = "";
+    if (blob) {
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(blob);
+      container.appendChild(img);
+    } else {
+      container.innerHTML = `<p>${defaultMessage}</p>`;
+    }
+  }
+
+  async function updateImageView(doc) {
+      if (!doc) {
+        renderImage(originalPanel, null, "Select a document");
+        renderImage(processedPanel, null, "Select a document");
+        return;
+      }
+
+      const originalBlob = await fetchImageBlob(doc.id, "original");
+      renderImage(originalPanel, originalBlob, "Original image unavailable.");
+
+      const isProcessed = ["queued_ocr", "ocr", "completed"].includes(doc.status);
+      if (isProcessed) {
+        const processedBlob = await fetchImageBlob(doc.id, "preprocessed");
+        renderImage(processedPanel, processedBlob, "Preprocessed image unavailable.");
+      } else {
+        renderImage(processedPanel, null, "Image has not been preprocessed yet.");
+      }
+  }
+
+  async function onSelectChange() {
+    stopPolling(); // Stop polling when changing selection
+    selectedDocumentId = documentSelect.value;
+    preprocessButton.disabled = !selectedDocumentId;
+    const selectedDoc = documents.find(d => d.id === selectedDocumentId);
+    updateImageView(selectedDoc);
+  }
+
+  async function onPreprocessClick() {
+    if (!selectedDocumentId) return;
+    
+    preprocessButton.disabled = true;
+    setStatus("Starting preprocessing...", "info");
+
+    try {
+      await apiClient.post(`/documents/${selectedDocumentId}/process`, {});
+      setStatus("Preprocessing started. Checking status...", "info");
+      // Start polling for status updates
+      await pollDocumentStatus(selectedDocumentId);
+    } catch (error) {
+      setStatus(error.message || "Failed to start preprocessing.", "error");
+      preprocessButton.disabled = false;
+    }
+  }
+
+  async function fetchDocuments() {
+    if (!currentTokens) return;
+    try {
+      const docs = await apiClient.get("/documents");
+      documents = docs.filter(d => d.content_type.startsWith('image/')); // Only show images
+      
+      documentSelect.innerHTML = '<option value="">-- Select a document --</option>';
+      documents.forEach(doc => {
+        const option = document.createElement("option");
+        option.value = doc.id;
+        option.textContent = `${doc.filename} (${doc.status})`;
+        documentSelect.appendChild(option);
+      });
+      setStatus(`Loaded ${documents.length} image documents.`, "success");
+    } catch (error) {
+      setStatus("Failed to load documents.", "error");
+    }
+  }
+
+  function setTokens(tokens) {
+    currentTokens = tokens;
+    if (tokens) {
+      fetchDocuments();
+    } else {
+      stopPolling(); // Stop polling when logging out
+    }
+  }
+  
+  // Listen for document upload events from other components
+  const handleDocumentUploaded = () => {
+    if (currentTokens) {
+      fetchDocuments();
+    }
+  };
+  
+  window.addEventListener('documentUploaded', handleDocumentUploaded);
+  
+  documentSelect.addEventListener("change", onSelectChange);
+  preprocessButton.addEventListener("click", onPreprocessClick);
+  
+  setStatus("Select a document to view and preprocess.", "info");
+
+  return { element: section, setTokens };
+}
+
+--- End of D:\Disk D 13-09-25\Universitate\Master\Anul2\sem1\MSOP\frontend\src\components\PreprocessView.js ---
+
+
 --- Start of D:\Disk D 13-09-25\Universitate\Master\Anul2\sem1\MSOP\frontend\src\components\UploadStatus.js ---
 import { apiClient } from "../api/client";
 
@@ -2320,7 +2819,7 @@ export function createUploadStatus() {
   const table = document.createElement("table");
   table.className = "document-table";
   const thead = document.createElement("thead");
-  thead.innerHTML = "<tr><th>Filename</th><th>Status</th><th>Updated</th><th>Actions</th></tr>";
+  thead.innerHTML = "<tr><th>Filename</th><th>Actions</th></tr>";
   const tbody = document.createElement("tbody");
   table.append(thead, tbody);
 
@@ -2333,17 +2832,6 @@ export function createUploadStatus() {
   function setStatus(message, variant = "info") {
     status.textContent = message;
     status.className = `status-message status-${variant}`;
-  }
-
-  function createStatusLabel(doc) {
-    const span = document.createElement("span");
-    const statusClass = doc.status.replace(/_/g, "-");
-    span.className = `status-label status-${statusClass}`;
-    span.textContent = doc.status.replace(/_/g, " ");
-    if (doc.status === "failed" && doc.error_message) {
-      span.title = doc.error_message;
-    }
-    return span;
   }
 
   function createActionButton(label, handler, variant) {
@@ -2365,7 +2853,7 @@ export function createUploadStatus() {
     if (!documents.length) {
       const emptyRow = document.createElement("tr");
       const cell = document.createElement("td");
-      cell.colSpan = 4;
+      cell.colSpan = 2;
       cell.textContent = currentTokens
         ? "No documents uploaded yet."
         : "Authenticate to view documents.";
@@ -2380,19 +2868,12 @@ export function createUploadStatus() {
       const filenameCell = document.createElement("td");
       filenameCell.textContent = doc.filename;
 
-      const statusCell = document.createElement("td");
-      statusCell.appendChild(createStatusLabel(doc));
-
-      const updatedCell = document.createElement("td");
-      updatedCell.textContent = doc.updated_at ? new Date(doc.updated_at).toLocaleString() : "—";
-
       const actionsCell = document.createElement("td");
       actionsCell.append(
-        createActionButton("Procesează", () => requeueDocument(doc.id), "secondary"),
         createActionButton("Delete", () => deleteDocument(doc.id), "danger"),
       );
 
-      row.append(filenameCell, statusCell, updatedCell, actionsCell);
+      row.append(filenameCell, actionsCell);
       tbody.appendChild(row);
     });
   }
@@ -2426,16 +2907,6 @@ export function createUploadStatus() {
     } finally {
       isLoading = false;
       refreshButton.disabled = !currentTokens;
-    }
-  }
-
-  async function requeueDocument(documentId) {
-    try {
-      await apiClient.post(`/documents/${documentId}/process`, {});
-      setStatus("Document requeued for processing.", "success");
-      await fetchDocuments();
-    } catch (error) {
-      setStatus(error.message || "Failed to requeue document.", "error");
     }
   }
 
@@ -2474,6 +2945,9 @@ export function createUploadStatus() {
       setStatus(`Uploaded ${document.filename}.`, "success");
       fileInput.value = "";
       await fetchDocuments();
+      
+      // Notify other components that a new document was uploaded
+      window.dispatchEvent(new CustomEvent('documentUploaded', { detail: document }));
     } catch (error) {
       setStatus(error.message || "Upload failed.", "error");
     } finally {
@@ -3024,6 +3498,130 @@ button.danger:hover {
   }
 }
 
+/* Preprocess View Styles */
+.preprocess-controls {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  align-items: center;
+}
+
+.preprocess-controls select {
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #cbd5f5;
+  min-width: 250px;
+}
+
+.preprocess-viewer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-top: 1rem;
+}
+
+.image-panel h3 {
+  margin-top: 0;
+  color: #374151;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 0.5rem;
+}
+
+.image-panel .image-container {
+  width: 100%;
+  min-height: 200px;
+  background-color: #f8fafc;
+  border: 1px dashed #cbd5f5;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.image-panel .image-container img {
+  max-width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.image-panel .image-container p {
+  color: #64748b;
+}
+
+/* OCR View Styles */
+.ocr-controls {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  align-items: center;
+}
+
+.ocr-controls select {
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #cbd5f5;
+  min-width: 250px;
+}
+
+.ocr-viewer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-top: 1rem;
+}
+
+.ocr-image-panel h3,
+.ocr-text-panel h3 {
+  margin-top: 0;
+  color: #374151;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 0.5rem;
+}
+
+.ocr-image-container {
+  width: 100%;
+  min-height: 200px;
+  background-color: #f8fafc;
+  border: 1px dashed #cbd5f5;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.ocr-image-container img {
+  max-width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.ocr-image-container p {
+  color: #64748b;
+}
+
+.ocr-text-area {
+  width: 100%;
+  min-height: 400px;
+  padding: 1rem;
+  border: 1px solid #cbd5f5;
+  border-radius: 8px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  resize: vertical;
+  background-color: #ffffff;
+}
+
+.ocr-text-area:focus {
+  outline: none;
+  border-color: #1d4ed8;
+  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.1);
+}
+
 --- End of D:\Disk D 13-09-25\Universitate\Master\Anul2\sem1\MSOP\frontend\src\styles\main.css ---
 
 
@@ -3266,6 +3864,21 @@ async def requeue_document(
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text) from exc
 
+
+@router.get("/documents/{document_id}/binary", response_class=Response, tags=["documents"])
+async def get_document_binary(
+    document_id: str,
+    variant: str = "original",
+    user_id: str = Depends(get_current_user_id),
+    client: DocumentServiceClient = Depends(get_document_client),
+) -> Response:
+    try:
+        content = await client.get_document_binary(document_id, variant)
+        media_type = "image/png" if variant == "preprocessed" else "application/octet-stream"
+        return Response(content=content, media_type=media_type)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text) from exc
+
 --- End of D:\Disk D 13-09-25\Universitate\Master\Anul2\sem1\MSOP\gateway\src\api\routes.py ---
 
 
@@ -3328,6 +3941,14 @@ class DocumentServiceClient:
         )
         response.raise_for_status()
         return response.json()
+
+    async def get_document_binary(self, document_id: str, variant: str = "original") -> bytes:
+        response = await self._client.get(
+            f"/internal/documents/{document_id}/binary",
+            params={"variant": variant},
+        )
+        response.raise_for_status()
+        return response.content
 
 --- End of D:\Disk D 13-09-25\Universitate\Master\Anul2\sem1\MSOP\gateway\src\clients\document_client.py ---
 
